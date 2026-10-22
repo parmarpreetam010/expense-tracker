@@ -1,3 +1,4 @@
+from sqlalchemy import func  # <-- Add this to your top import block!
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -131,6 +132,41 @@ def update_expense(
     db.commit()
     db.refresh(db_expense)
     return db_expense
+
+# ---------------------------------------------------------
+# ANALYTICS ROUTE: Get Totals and Category Breakdown (GET) - LOCKED 🔒
+# ---------------------------------------------------------
+@app.get("/analytics/summary", response_model=schemas.MonthSummaryResponse)
+def get_spending_summary(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+):
+    # 1. Calculate the absolute total amount spent by this specific user
+    total_spent = db.query(func.sum(models.Expense.amount)).filter(
+        models.Expense.user_id == current_user.id
+    ).scalar() or 0.0 # Returns 0.0 if the user has no expenses yet
+    
+    # 2. Query the database to group expenses by category and calculate totals for each
+    category_data = db.query(
+        models.Expense.category,
+        func.sum(models.Expense.amount).label("total_amount")
+    ).filter(
+        models.Expense.user_id == current_user.id
+    ).group_by(
+        models.Expense.category
+    ).all()
+    
+    # 3. Format the category data cleanly into our Pydantic schema structure
+    breakdown = [
+        schemas.CategorySpend(category=row[0], total_amount=float(row[1])) 
+        for row in category_data
+    ]
+    
+    # 4. Return the complete aggregated dashboard object
+    return {
+        "total_spending": total_spent,
+        "category_breakdown": breakdown
+    }
 
 
 # ---------------------------------------------------------
