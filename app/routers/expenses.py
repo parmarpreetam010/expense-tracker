@@ -1,3 +1,18 @@
+import csv
+import io
+from datetime import datetime
+from typing import Optional, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy import asc, desc
+from sqlalchemy.orm import Session
+
+from app import models, schemas, auth
+from app.database import get_db
+
+router = APIRouter(prefix="/expenses", tags=["Expenses"])
+
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -106,3 +121,52 @@ def update_expense(
     db.commit()
     db.refresh(db_expense)
     return db_expense
+
+# ---------------------------------------------------------
+# CSV EXPORT ENDPOINT: Stream filtered expenses as CSV
+# ---------------------------------------------------------
+@router.get("/export")
+def export_expenses_csv(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+    category: Optional[str] = Query(default=None, description="Filter by category"),
+    start_date: Optional[datetime] = Query(default=None, description="Filter from date (YYYY-MM-DD)"),
+    end_date: Optional[datetime] = Query(default=None, description="Filter up to date (YYYY-MM-DD)")
+):
+    # 1. Query expenses strictly scoped to current user
+    query = db.query(models.Expense).filter(models.Expense.user_id == current_user.id)
+
+    # 2. Apply optional filters
+    if category:
+        query = query.filter(models.Expense.category.ilike(f"%{category}%"))
+    if start_date:
+        query = query.filter(models.Expense.date >= start_date)
+    if end_date:
+        query = query.filter(models.Expense.date <= end_date)
+
+    expenses = query.order_by(desc(models.Expense.date)).all()
+
+    # 3. Create an in-memory string buffer and write CSV records
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write column headers
+    writer.writerow(["ID", "Title", "Amount", "Category", "Date"])
+
+    # Write data rows
+    for item in expenses:
+        formatted_date = item.date.strftime("%Y-%m-%d %H:%M:%S") if item.date else ""
+        writer.writerow([item.id, item.title, item.amount, item.category, formatted_date])
+
+    # 4. Reset stream cursor to beginning
+    output.seek(0)
+
+    # 5. Return as downloadable file attachment stream
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"expenses_{timestamp}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
