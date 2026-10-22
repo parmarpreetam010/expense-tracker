@@ -121,3 +121,13 @@ class BudgetResponse(BaseModel):
     percentage_used: Optional[float] = 0.0
 
     model_config = ConfigDict(from_attributes=True)
+
+    # ==========================================
+# TREND ANALYTICS SCHEMAS
+# ==========================================
+
+class MonthlyTrendItem(BaseModel):
+    month: str  # Format: "YYYY-MM"
+    total_amount: float
+
+    model_config = ConfigDict(from_attributes=True)
