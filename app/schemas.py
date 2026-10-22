@@ -1,14 +1,21 @@
-from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
-from typing import List
-# This defines what data we NEED when someone creates a new expense
+from decimal import Decimal
+from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+
+# ==========================================
+# EXPENSE SCHEMAS
+# ==========================================
+
+# What data is required to create a new expense
 class ExpenseCreate(BaseModel):
     title: str
     amount: float
     category: str
 
-# This defines what data our app will SEND BACK to the user
+
+# What data the app returns for a single expense record
 class ExpenseResponse(BaseModel):
     id: int
     title: str
@@ -16,43 +23,60 @@ class ExpenseResponse(BaseModel):
     category: str
     date: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
-from pydantic import EmailStr, BaseModel # EmailStr ensures incoming data is a valid email format
 
-# Schema 1: What data we NEED when a user signs up
+# Wrapper for paginated results (must be defined AFTER ExpenseResponse)
+class PaginatedExpenseResponse(BaseModel):
+    total_records: int
+    limit: int
+    offset: int
+    data: List[ExpenseResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==========================================
+# USER & AUTH SCHEMAS
+# ==========================================
+
+# Data required when a user registers
 class UserCreate(BaseModel):
-    email: str # Tip: If you want strict validation, you can change this to EmailStr later
+    email: str
     password: str
 
-# Schema 2: What data our app will securely SEND BACK to the user profile
+
+# Data returned for user profiles
 class UserResponse(BaseModel):
     id: int
     email: str
-    date_created: Optional[datetime] = None # Matches our model timestamp field
+    date_created: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-# Schema 3: What the server sends back after a successful login
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Response after successful authentication
 class Token(BaseModel):
     access_token: str
     token_type: str
 
-# Schema 4: The structural data stored inside the decrypted token
+
+# Decoded token payload structure
 class TokenData(BaseModel):
     user_id: Optional[int] = None
 
-# Schema 5: Layout for category-wise breakdowns
+
+# ==========================================
+# ANALYTICS SCHEMAS
+# ==========================================
+
 class CategorySpend(BaseModel):
     category: str
     total_amount: float
 
-# Schema 6: Layout for the full financial dashboard summary
+
 class MonthSummaryResponse(BaseModel):
     total_spending: float
     category_breakdown: List[CategorySpend]
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)

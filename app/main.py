@@ -1,13 +1,16 @@
-from sqlalchemy import func  # <-- Add this to your top import block!
-from fastapi import FastAPI, Depends, HTTPException, status
+from datetime import datetime
+from typing import List, Optional, Literal
+
+from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func, asc, desc
 from sqlalchemy.orm import Session
-from typing import List
-from fastapi.security import OAuth2PasswordRequestForm # <-- Add this import!
 
 from app import models, schemas, security, auth
 from app.database import get_db
 
 app = FastAPI(title="Expense Tracker")
+
 
 # ---------------------------------------------------------
 # AUTH ROUTE 1: User Sign-Up / Registration (POST)
@@ -33,12 +36,9 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # ---------------------------------------------------------
 @app.post("/login", response_model=schemas.Token)
 def login_user(
-    # Changed from schemas.UserCreate to OAuth2PasswordRequestForm
     user_credentials: OAuth2PasswordRequestForm = Depends(), 
     db: Session = Depends(get_db)
 ):
-    # 💥 CRITICAL UPDATE: OAuth2PasswordRequestForm stores the data inside 
-    # .username (which holds your email) and .password!
     user = db.query(models.User).filter(models.User.email == user_credentials.username).first()
     
     if not user or not security.verify_password(user_credentials.password, user.hashed_password):
@@ -51,7 +51,6 @@ def login_user(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-
 # ---------------------------------------------------------
 # EXPENSE ROUTE 1: Create a new expense (POST) - LOCKED 🔒
 # ---------------------------------------------------------
@@ -59,13 +58,13 @@ def login_user(
 def create_expense(
     expense: schemas.ExpenseCreate, 
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     db_expense = models.Expense(
         title=expense.title,
         amount=expense.amount,
         category=expense.category,
-        user_id=current_user.id  # <-- Automatically links the entry to this user account!
+        user_id=current_user.id
     )
     db.add(db_expense)
     db.commit()
@@ -74,15 +73,52 @@ def create_expense(
 
 
 # ---------------------------------------------------------
-# EXPENSE ROUTE 2: Get only MY saved expenses (GET) - LOCKED 🔒
+# EXPENSE ROUTE 2: Get MY expenses (GET) - LOCKED 🔒
+# Added: Pagination, Filters, and Sorting
 # ---------------------------------------------------------
-@app.get("/expenses", response_model=List[schemas.ExpenseResponse])
+@app.get("/expenses", response_model=schemas.PaginatedExpenseResponse)
 def get_expenses(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+    current_user: models.User = Depends(auth.get_current_user),
+    # Pagination
+    limit: int = Query(default=10, ge=1, le=100, description="Items per page"),
+    offset: int = Query(default=0, ge=0, description="Number of items to skip"),
+    # Filters
+    category: Optional[str] = Query(default=None, description="Filter by category"),
+    start_date: Optional[datetime] = Query(default=None, description="Start date (YYYY-MM-DD or full ISO)"),
+    end_date: Optional[datetime] = Query(default=None, description="End date (YYYY-MM-DD or full ISO)"),
+    # Sorting
+    sort_by: Literal["date", "amount"] = Query(default="date", description="Sort by date or amount"),
+    order: Literal["asc", "desc"] = Query(default="desc", description="Sort direction")
 ):
-    # CRITICAL CHECK: Filters the records so users ONLY see their own rows!
-    return db.query(models.Expense).filter(models.Expense.user_id == current_user.id).all()
+    # 1. Base query strictly scoped to logged-in user
+    query = db.query(models.Expense).filter(models.Expense.user_id == current_user.id)
+
+    # 2. Dynamic Filtering
+    if category:
+        query = query.filter(models.Expense.category.ilike(f"%{category}%"))
+    if start_date:
+        query = query.filter(models.Expense.date >= start_date)
+    if end_date:
+        query = query.filter(models.Expense.date <= end_date)
+
+    # 3. Calculate total count for matching records
+    total_records = query.count()
+
+    # 4. Dynamic Sorting
+    sort_column = models.Expense.amount if sort_by == "amount" else models.Expense.date
+    order_func = asc if order == "asc" else desc
+    query = query.order_by(order_func(sort_column))
+
+    # 5. Apply Pagination
+    expenses = query.offset(offset).limit(limit).all()
+
+    return {
+        "total_records": total_records,
+        "limit": limit,
+        "offset": offset,
+        "data": expenses
+    }
 
 
 # ---------------------------------------------------------
@@ -92,11 +128,11 @@ def get_expenses(
 def delete_expense(
     expense_id: int, 
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     db_expense = db.query(models.Expense).filter(
         models.Expense.id == expense_id, 
-        models.Expense.user_id == current_user.id  # Ensure the entry belongs to the logged-in user!
+        models.Expense.user_id == current_user.id
     ).first()
     
     if not db_expense:
@@ -115,11 +151,11 @@ def update_expense(
     expense_id: int, 
     updated_expense: schemas.ExpenseCreate, 
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     db_expense = db.query(models.Expense).filter(
         models.Expense.id == expense_id, 
-        models.Expense.user_id == current_user.id  # Ensure the entry belongs to the logged-in user!
+        models.Expense.user_id == current_user.id
     ).first()
     
     if not db_expense:
@@ -133,20 +169,19 @@ def update_expense(
     db.refresh(db_expense)
     return db_expense
 
+
 # ---------------------------------------------------------
 # ANALYTICS ROUTE: Get Totals and Category Breakdown (GET) - LOCKED 🔒
 # ---------------------------------------------------------
 @app.get("/analytics/summary", response_model=schemas.MonthSummaryResponse)
 def get_spending_summary(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)  # <-- Requires login token!
+    current_user: models.User = Depends(auth.get_current_user)
 ):
-    # 1. Calculate the absolute total amount spent by this specific user
     total_spent = db.query(func.sum(models.Expense.amount)).filter(
         models.Expense.user_id == current_user.id
-    ).scalar() or 0.0 # Returns 0.0 if the user has no expenses yet
+    ).scalar() or 0.0
     
-    # 2. Query the database to group expenses by category and calculate totals for each
     category_data = db.query(
         models.Expense.category,
         func.sum(models.Expense.amount).label("total_amount")
@@ -156,13 +191,11 @@ def get_spending_summary(
         models.Expense.category
     ).all()
     
-    # 3. Format the category data cleanly into our Pydantic schema structure
     breakdown = [
         schemas.CategorySpend(category=row[0], total_amount=float(row[1])) 
         for row in category_data
     ]
     
-    # 4. Return the complete aggregated dashboard object
     return {
         "total_spending": total_spent,
         "category_breakdown": breakdown
