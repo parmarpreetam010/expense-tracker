@@ -1,25 +1,42 @@
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import API from "../services/api";
 
 export default function Auth({ onLoginSuccess }) {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccessMsg("");
+
+    if (isRegister && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       if (isRegister) {
-        // Step 1: Register user (JSON body)
+        // Step 1: Register new user account
         await API.post("/users", { email, password });
+        setSuccessMsg("Account created successfully! You can now log in.");
+        setIsRegister(false);
+        setPassword("");
+        setConfirmPassword("");
+        setLoading(false);
+        return;
       }
 
-      // Step 2: Login via OAuth2 Form Data to obtain JWT
+      // Step 2: Login via OAuth2 Form Data
       const formData = new URLSearchParams();
       formData.append("username", email);
       formData.append("password", password);
@@ -62,6 +79,12 @@ export default function Auth({ onLoginSuccess }) {
           </div>
         )}
 
+        {successMsg && (
+          <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-sm text-center">
+            {successMsg}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1">
@@ -81,15 +104,47 @@ export default function Auth({ onLoginSuccess }) {
             <label className="block text-sm font-medium text-slate-300 mb-1">
               Password
             </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-2.5 pr-11 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition"
+                tabIndex={-1}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
+              </button>
+            </div>
           </div>
+
+          {isRegister && (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-2.5 pr-11 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+          )}
 
           <button
             type="submit"
@@ -107,6 +162,7 @@ export default function Auth({ onLoginSuccess }) {
             onClick={() => {
               setIsRegister(!isRegister);
               setError("");
+              setSuccessMsg("");
             }}
             className="text-emerald-400 hover:text-emerald-300 font-medium ml-1 underline"
           >
