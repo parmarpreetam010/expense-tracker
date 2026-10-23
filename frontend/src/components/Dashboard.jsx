@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { PlusCircle, Trash2, DollarSign, Receipt, LogOut } from "lucide-react";
+import { PlusCircle, Trash2, IndianRupee, Receipt, LogOut } from "lucide-react";
 import API from "../services/api";
+import AnalyticsCharts from "./AnalyticsCharts";
 
 const CATEGORIES = ["Food", "Transport", "Bills", "Shopping", "Entertainment", "Other"];
 
@@ -110,11 +111,11 @@ export default function Dashboard({ userEmail, onLogout }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex items-center gap-4">
             <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
-              <DollarSign className="w-8 h-8" />
+              <IndianRupee className="w-8 h-8" />
             </div>
             <div>
               <p className="text-sm font-medium text-slate-400">Total Spent</p>
-              <h3 className="text-2xl font-bold text-white">${totalSpent.toFixed(2)}</h3>
+              <h3 className="text-2xl font-bold text-white">₹{totalSpent.toFixed(2)}</h3>
             </div>
           </div>
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex items-center gap-4">
@@ -127,6 +128,9 @@ export default function Dashboard({ userEmail, onLogout }) {
             </div>
           </div>
         </div>
+
+        {/* Analytics Section */}
+        <AnalyticsCharts expenses={expenses} />
 
         {/* Expenses Table */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
@@ -165,7 +169,7 @@ export default function Dashboard({ userEmail, onLogout }) {
                         {expense.date ? new Date(expense.date).toLocaleDateString() : "N/A"}
                       </td>
                       <td className="py-4 px-6 font-semibold text-emerald-400">
-                        ${Number(expense.amount).toFixed(2)}
+                        ₹{Number(expense.amount).toFixed(2)}
                       </td>
                       <td className="py-4 px-6 text-right">
                         <button
@@ -204,7 +208,7 @@ export default function Dashboard({ userEmail, onLogout }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Amount ($)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Amount (₹)</label>
                 <input
                   type="number"
                   step="0.01"
