@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   PlusCircle, Trash2, Edit3, Download, LogOut, 
-  AlertTriangle, CheckCircle2, TrendingUp, IndianRupee 
+  AlertTriangle, CheckCircle2, TrendingUp 
 } from "lucide-react";
 import API from "../services/api";
 import AnalyticsCharts from "./AnalyticsCharts";
@@ -29,7 +29,16 @@ export default function Dashboard({ onLogout }) {
     status: "SAFE",
   });
   const [newBudgetLimit, setNewBudgetLimit] = useState("");
+  const [budgetCategory, setBudgetCategory] = useState("1");
   const [showBudgetModal, setShowBudgetModal] = useState(false);
+
+  // Automatically generates "YYYY-MM" (e.g., "2026-10")
+  const getCurrentMonthString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  };
 
   const fetchExpenses = async () => {
     try {
@@ -113,13 +122,31 @@ export default function Dashboard({ onLogout }) {
 
   const handleSetBudget = async (e) => {
     e.preventDefault();
-    if (!newBudgetLimit || parseFloat(newBudgetLimit) <= 0) return;
+    const limitValue = parseFloat(newBudgetLimit);
+    if (isNaN(limitValue) || limitValue <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+
+    const currentTargetMonth = getCurrentMonthString();
+
     try {
-      await API.post("/budgets", { monthly_limit: parseFloat(newBudgetLimit) });
+      await API.post("/budgets", {
+        monthly_limit: limitValue,
+        category_id: parseInt(budgetCategory, 10),
+        month: currentTargetMonth,
+      });
       setShowBudgetModal(false);
       await fetchBudgetStatus();
+      alert(`Budget set successfully for ${currentTargetMonth}!`);
     } catch (err) {
-      alert("Failed to update budget.");
+      console.error("Budget save error:", err.response?.data);
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        alert(detail[0]?.msg || "Validation error");
+      } else {
+        alert(detail || "Failed to update budget.");
+      }
     }
   };
 
@@ -375,12 +402,28 @@ export default function Dashboard({ onLogout }) {
       {/* Budget Set Modal */}
       {showBudgetModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-bold text-white mb-2">Set Monthly Spending Ceiling</h3>
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-1">Set Monthly Spending Ceiling</h3>
             <p className="text-slate-400 text-xs mb-4">
-              Specify your target monthly budget in INR (₹). You will receive visual threshold warnings upon reaching 80% and 100%.
+              Category aur monthly limit define karein. Threshold reach hone par progress bar alert show karega.
             </p>
             <form onSubmit={handleSetBudget} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Target Category</label>
+                <select
+                  value={budgetCategory}
+                  onChange={(e) => setBudgetCategory(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="1">Food & Dining</option>
+                  <option value="2">Travel & Transport</option>
+                  <option value="3">Utilities & Bills</option>
+                  <option value="4">Entertainment</option>
+                  <option value="5">Software & Cloud</option>
+                  <option value="6">Healthcare</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Monthly Limit (₹)</label>
                 <input
@@ -389,11 +432,12 @@ export default function Dashboard({ onLogout }) {
                   required
                   value={newBudgetLimit}
                   onChange={(e) => setNewBudgetLimit(e.target.value)}
-                  placeholder="e.g. 25000"
+                  placeholder="e.g. 2000"
                   className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
-              <div className="flex gap-2">
+
+              <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
                   className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-sm transition"
