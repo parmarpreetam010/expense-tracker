@@ -2,7 +2,7 @@ import csv
 import io
 from datetime import datetime
 from typing import Optional, Literal
-
+from app.auth import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import asc, desc
@@ -171,7 +171,7 @@ def export_expenses_csv(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-    @router.put("/{expense_id}", response_model=schemas.ExpenseResponse, tags=["Expenses"])
+@router.put("/{expense_id}", response_model=schemas.ExpenseResponse, tags=["Expenses"])
 def update_expense(
     expense_id: int,
     expense_update: schemas.ExpenseCreate,
