@@ -101,3 +101,17 @@ def get_budget_status(
         "month": target_month,
         "year": target_year,
     }
+
+# Check if category exists, if not, auto-create it
+    category = db.query(models.Category).filter(models.Category.id == payload.category_id).first()
+    if not category:
+        category_names = {
+            1: "Food", 2: "Transport", 3: "Utilities", 
+            4: "Entertainment", 5: "Software", 6: "Healthcare"
+        }
+        name = category_names.get(payload.category_id, "General")
+        category = models.Category(id=payload.category_id, name=name)
+        db.add(category)
+        db.commit()
+        db.refresh(category)
+        
