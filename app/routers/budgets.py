@@ -1,89 +1,103 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import func
+from datetime import date
+from pydantic import BaseModel
+from typing import Optional
 
-from app import models, schemas, auth
+from app import models
 from app.database import get_db
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/budgets", tags=["Budgets"])
 
-# ---------------------------------------------------------
-# SET OR UPDATE A BUDGET (POST /budgets)
-# ---------------------------------------------------------
-@router.post("", response_model=schemas.BudgetResponse, status_code=status.HTTP_201_CREATED)
-def set_budget(
-    budget: schemas.BudgetCreate,
+class BudgetSetRequest(BaseModel):
+    monthly_limit: float
+    month: Optional[int] = None
+    year: Optional[int] = None
+
+@router.post("", status_code=status.HTTP_200_OK)
+def set_monthly_budget(
+    payload: BudgetSetRequest,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
-    # 1. Verify category belongs to the logged-in user
-    category = db.query(models.Category).filter(
-        models.Category.id == budget.category_id,
-        models.Category.user_id == current_user.id
-    ).first()
-    if not category:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    today = date.today()
+    target_month = payload.month or today.month
+    target_year = payload.year or today.year
 
-    # 2. Update existing budget if one is already set for this month
-    existing_budget = db.query(models.Budget).filter(
-        models.Budget.user_id == current_user.id,
-        models.Budget.category_id == budget.category_id,
-        models.Budget.month == budget.month
-    ).first()
-
-    if existing_budget:
-        existing_budget.monthly_limit = budget.monthly_limit
-        db.commit()
-        db.refresh(existing_budget)
-        return existing_budget
-
-    # 3. Create a new budget record
-    new_budget = models.Budget(
-        user_id=current_user.id,
-        category_id=budget.category_id,
-        monthly_limit=budget.monthly_limit,
-        month=budget.month
-    )
-    db.add(new_budget)
-    db.commit()
-    db.refresh(new_budget)
-    return new_budget
-
-
-# ---------------------------------------------------------
-# GET ALL BUDGETS WITH USAGE % (GET /budgets?month=YYYY-MM)
-# ---------------------------------------------------------
-@router.get("", response_model=List[schemas.BudgetResponse])
-def get_budgets(
-    month: str,  # Format: "YYYY-MM" (e.g., "2026-10")
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    budgets = db.query(models.Budget).filter(
-        models.Budget.user_id == current_user.id,
-        models.Budget.month == month
-    ).all()
-
-    result = []
-    for b in budgets:
-        # Sum total expenses under this category for the user
-        total_spent = db.query(func.sum(models.Expense.amount)).filter(
-            models.Expense.user_id == current_user.id,
-            models.Expense.category_id == b.category_id
-        ).scalar() or 0.0
-
-        percentage = (total_spent / b.monthly_limit * 100.0) if b.monthly_limit > 0 else 0.0
-
-        result.append(
-            schemas.BudgetResponse(
-                id=b.id,
-                category_id=b.category_id,
-                monthly_limit=b.monthly_limit,
-                month=b.month,
-                user_id=b.user_id,
-                total_spent=round(total_spent, 2),
-                percentage_used=round(percentage, 1)
-            )
+    budget = (
+        db.query(models.Budget)
+        .filter(
+            models.Budget.user_id == current_user.id,
+            models.Budget.month == target_month,
+            models.Budget.year == target_year,
         )
-    return result
+        .first()
+    )
+
+    if budget:
+        budget.monthly_limit = payload.monthly_limit
+    else:
+        budget = models.Budget(
+            user_id=current_user.id,
+            monthly_limit=payload.monthly_limit,
+            month=target_month,
+            year=target_year,
+        )
+        db.add(budget)
+
+    db.commit()
+    db.refresh(budget)
+    return {"message": "Budget limit updated successfully", "monthly_limit": budget.monthly_limit}
+
+@router.get("/status")
+def get_budget_status(
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    today = date.today()
+    target_month = month or today.month
+    target_year = year or today.year
+
+    budget = (
+        db.query(models.Budget)
+        .filter(
+            models.Budget.user_id == current_user.id,
+            models.Budget.month == target_month,
+            models.Budget.year == target_year,
+        )
+        .first()
+    )
+    monthly_limit = float(budget.monthly_limit) if budget else 0.0
+
+    actual_spending = (
+        db.query(func.coalesce(func.sum(models.Expense.amount), 0.0))
+        .filter(
+            models.Expense.user_id == current_user.id,
+            func.extract("month", models.Expense.date) == target_month,
+            func.extract("year", models.Expense.date) == target_year,
+        )
+        .scalar()
+    )
+    actual_spending = float(actual_spending)
+
+    percentage_used = round((actual_spending / monthly_limit * 100), 1) if monthly_limit > 0 else 0.0
+
+    status_flag = "SAFE"
+    if monthly_limit > 0:
+        if percentage_used >= 100:
+            status_flag = "OVERSPENT"
+        elif percentage_used >= 80:
+            status_flag = "WARNING"
+
+    return {
+        "monthly_limit": monthly_limit,
+        "actual_spending": actual_spending,
+        "percentage_used": percentage_used,
+        "status": status_flag,
+        "month": target_month,
+        "year": target_year,
+    }

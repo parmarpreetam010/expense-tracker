@@ -170,3 +170,31 @@ def export_expenses_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+    @router.put("/{expense_id}", response_model=schemas.ExpenseResponse, tags=["Expenses"])
+def update_expense(
+    expense_id: int,
+    expense_update: schemas.ExpenseCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    expense = (
+        db.query(models.Expense)
+        .filter(models.Expense.id == expense_id, models.Expense.user_id == current_user.id)
+        .first()
+    )
+    if not expense:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Expense not found.",
+        )
+
+    expense.title = expense_update.title
+    expense.amount = expense_update.amount
+    expense.category = expense_update.category
+    if expense_update.date:
+        expense.date = expense_update.date
+
+    db.commit()
+    db.refresh(expense)
+    return expense
