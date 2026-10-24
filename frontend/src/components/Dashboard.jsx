@@ -120,7 +120,7 @@ export default function Dashboard({ onLogout }) {
     setDateVal(exp.date ? exp.date.split("T")[0] : new Date().toISOString().split("T")[0]);
   };
 
-  const handleSetBudget = async (e) => {
+const handleSetBudget = async (e) => {
     e.preventDefault();
     const limitValue = parseFloat(newBudgetLimit);
     if (isNaN(limitValue) || limitValue <= 0) {
@@ -128,17 +128,20 @@ export default function Dashboard({ onLogout }) {
       return;
     }
 
-    const currentTargetMonth = getCurrentMonthString();
+    const now = new Date();
+    const currentMonthInt = now.getMonth() + 1; // 10 for October
+    const currentYearInt = now.getFullYear();   // 2026
 
     try {
       await API.post("/budgets", {
         monthly_limit: limitValue,
         category_id: parseInt(budgetCategory, 10),
-        month: currentTargetMonth,
+        month: currentMonthInt, // Sent as an integer
+        year: currentYearInt,
       });
       setShowBudgetModal(false);
       await fetchBudgetStatus();
-      alert(`Budget set successfully for ${currentTargetMonth}!`);
+      alert(`Budget of ₹${limitValue.toLocaleString("en-IN")} set successfully!`);
     } catch (err) {
       console.error("Budget save error:", err.response?.data);
       const detail = err.response?.data?.detail;
